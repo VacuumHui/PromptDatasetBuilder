@@ -1,4 +1,4 @@
-package com.civitared.promptdataset.data
+package com.promptdatasetbuilder.app.data
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -13,17 +13,14 @@ import javax.crypto.spec.GCMParameterSpec
 
 class SecureSettingsStore(context: Context) {
     private val appContext = context.applicationContext
-    private val plain = appContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-    private val secure = appContext.getSharedPreferences("secure_settings", Context.MODE_PRIVATE)
+    private val plain = appContext.getSharedPreferences("clean_app_settings", Context.MODE_PRIVATE)
+    private val secure = appContext.getSharedPreferences("clean_secure_settings", Context.MODE_PRIVATE)
 
     fun load(): AppSettings = AppSettings(
-        endpoint = plain.getString(KEY_ENDPOINT, AppSettings.DEFAULT_ENDPOINT)
-            ?.trim()
-            ?.ifBlank { AppSettings.DEFAULT_ENDPOINT }
-            ?: AppSettings.DEFAULT_ENDPOINT,
         apiKey = decrypt(secure.getString(KEY_API_KEY, null)).orEmpty(),
         includeNsfw = plain.getBoolean(KEY_INCLUDE_NSFW, false),
         command = plain.getString(KEY_COMMAND, AppSettings.DEFAULT_COMMAND)
+            ?.trim()
             ?.ifBlank { AppSettings.DEFAULT_COMMAND }
             ?: AppSettings.DEFAULT_COMMAND,
         pageSize = plain.getInt(KEY_PAGE_SIZE, 30).coerceIn(10, 100),
@@ -32,9 +29,8 @@ class SecureSettingsStore(context: Context) {
 
     fun save(settings: AppSettings) {
         plain.edit()
-            .putString(KEY_ENDPOINT, normalizeEndpoint(settings.endpoint))
             .putBoolean(KEY_INCLUDE_NSFW, settings.includeNsfw)
-            .putString(KEY_COMMAND, settings.command.trim())
+            .putString(KEY_COMMAND, settings.command.trim().ifBlank { AppSettings.DEFAULT_COMMAND })
             .putInt(KEY_PAGE_SIZE, settings.pageSize.coerceIn(10, 100))
             .putBoolean(KEY_AGE_CONFIRMED, settings.ageConfirmed)
             .apply()
@@ -43,9 +39,6 @@ class SecureSettingsStore(context: Context) {
             .putString(KEY_API_KEY, encrypt(settings.apiKey.trim()))
             .apply()
     }
-
-    fun normalizeEndpoint(value: String): String =
-        SettingsRules.normalizeEndpoint(value)
 
     private fun encrypt(value: String): String? {
         if (value.isBlank()) return null
@@ -90,7 +83,6 @@ class SecureSettingsStore(context: Context) {
     }
 
     private companion object {
-        const val KEY_ENDPOINT = "endpoint"
         const val KEY_API_KEY = "api_key"
         const val KEY_INCLUDE_NSFW = "include_nsfw"
         const val KEY_COMMAND = "command"
@@ -98,7 +90,7 @@ class SecureSettingsStore(context: Context) {
         const val KEY_AGE_CONFIRMED = "age_confirmed"
 
         const val ANDROID_KEY_STORE = "AndroidKeyStore"
-        const val KEY_ALIAS = "prompt_dataset_api_key"
+        const val KEY_ALIAS = "prompt_dataset_clean_api_key"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_SIZE = 12
     }

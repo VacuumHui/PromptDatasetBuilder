@@ -1,0 +1,30 @@
+ПОЛНАЯ ЗАМЕНА ПРОЕКТА В GITHUB CODESPACES
+
+1. Загрузите файл PromptDatasetBuilder-Clean-1.0.0.zip в корень текущего репозитория.
+2. Откройте Code -> Codespaces -> ваш Codespace.
+3. Откройте Terminal -> New Terminal.
+4. Выполните весь блок:
+
+cd "$CODESPACE_VSCODE_FOLDER"
+ZIP="PromptDatasetBuilder-Clean-1.0.0.zip"
+rm -rf /tmp/prompt-dataset-clean
+mkdir -p /tmp/prompt-dataset-clean
+unzip -q "$ZIP" -d /tmp/prompt-dataset-clean
+find . -mindepth 1 -maxdepth 1 ! -name ".git" ! -name "$ZIP" -exec rm -rf {} +
+cp -a /tmp/prompt-dataset-clean/PromptDatasetBuilder-Clean-1.0.0/. .
+rm -rf /tmp/prompt-dataset-clean "$ZIP"
+git add -A
+git status
+git commit -m "Полная замена приложения на Clean 1.0.0"
+git push
+
+5. В GitHub откройте Actions -> Android CI Clean 1.0.0.
+6. После зелёной сборки скачайте artifact PromptDatasetBuilder-Clean-1.0.0-debug.
+7. Распакуйте artifact и установите PromptDatasetBuilder-Clean-1.0.0-debug.apk.
+
+Если git просит имя и почту:
+
+git config user.name "ВАШ_ЛОГИН_GITHUB"
+git config user.email "ВАША_ПОЧТА_GITHUB"
+
+Затем повторите git commit и git push.

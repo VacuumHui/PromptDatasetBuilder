@@ -1,4 +1,4 @@
-package com.civitared.promptdataset.data
+package com.promptdatasetbuilder.app.data
 
 import android.content.ContentValues
 import android.content.Context
@@ -158,14 +158,8 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    fun countEntries(): Int {
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM dataset_entries", null).use {
-            return if (it.moveToFirst()) it.getInt(0) else 0
-        }
-    }
-
-    private fun findEntryId(db: SQLiteDatabase, sourceImageId: String): Long? {
-        return db.query(
+    private fun findEntryId(db: SQLiteDatabase, sourceImageId: String): Long? =
+        db.query(
             "dataset_entries",
             arrayOf("id"),
             "source_id = ?",
@@ -176,7 +170,6 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(
         ).use { cursor ->
             if (cursor.moveToFirst()) cursor.getLong(0) else null
         }
-    }
 
     private fun upsertState(
         db: SQLiteDatabase,
@@ -198,7 +191,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     private companion object {
-        const val DATABASE_NAME = "prompt_dataset.db"
+        const val DATABASE_NAME = "prompt_dataset_clean.db"
         const val DATABASE_VERSION = 1
         const val STATUS_COMPLETED = "COMPLETED"
         const val STATUS_IGNORED = "IGNORED"

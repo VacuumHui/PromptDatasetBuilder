@@ -1,4 +1,4 @@
-package com.civitared.promptdataset
+package com.promptdatasetbuilder.app
 
 import android.net.Uri
 import android.os.Bundle
@@ -39,8 +39,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ImageSearch
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -94,12 +94,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import com.civitared.promptdataset.data.AppSettings
-import com.civitared.promptdataset.data.DatasetEntry
-import com.civitared.promptdataset.data.DatasetExporter
-import com.civitared.promptdataset.data.SourceImage
-import com.civitared.promptdataset.ui.AppViewModel
-import com.civitared.promptdataset.ui.theme.PromptDatasetTheme
+import com.promptdatasetbuilder.app.data.AppSettings
+import com.promptdatasetbuilder.app.data.DatasetEntry
+import com.promptdatasetbuilder.app.data.DatasetExporter
+import com.promptdatasetbuilder.app.data.NetworkDiagnostic
+import com.promptdatasetbuilder.app.data.SourceImage
+import com.promptdatasetbuilder.app.ui.AppViewModel
+import com.promptdatasetbuilder.app.ui.theme.PromptDatasetTheme
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -111,17 +112,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             PromptDatasetTheme {
-                PromptDatasetApp(viewModel = viewModel)
+                PromptDatasetApp(viewModel)
             }
         }
     }
 }
 
-private enum class MainTab {
-    GALLERY,
-    DATASET,
-    SETTINGS,
-}
+private enum class MainTab { GALLERY, DATASET, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,8 +138,8 @@ private fun PromptDatasetApp(viewModel: AppViewModel) {
                     DatasetExporter(context.contentResolver).exportJsonl(uri, state.entries)
                 }.onSuccess { count ->
                     snackbarHostState.showSnackbar("Экспортировано записей: $count")
-                }.onFailure {
-                    snackbarHostState.showSnackbar(it.message ?: "Ошибка экспорта")
+                }.onFailure { error ->
+                    snackbarHostState.showSnackbar(error.message ?: "Ошибка экспорта")
                 }
             }
         }
@@ -234,12 +231,11 @@ private fun PromptDatasetApp(viewModel: AppViewModel) {
                     loading = state.loading,
                     loadingMore = state.loadingMore,
                     canLoadMore = state.canLoadMore,
-                    includeNsfw = state.settings.includeNsfw,
+                    diagnostic = state.diagnostic,
                     onImageClick = viewModel::selectImage,
                     onLoadMore = viewModel::loadMore,
                     onRefresh = viewModel::refreshGallery,
                 )
-
                 MainTab.DATASET -> DatasetScreen(
                     entries = state.entries,
                     onDelete = viewModel::deleteEntry,
@@ -249,9 +245,9 @@ private fun PromptDatasetApp(viewModel: AppViewModel) {
                         )
                     },
                 )
-
                 MainTab.SETTINGS -> SettingsScreen(
                     current = state.settings,
+                    diagnostic = state.diagnostic,
                     testing = state.connectionTesting,
                     onSave = viewModel::saveSettings,
                     onTest = viewModel::testConnection,
@@ -267,9 +263,7 @@ private fun PromptDatasetApp(viewModel: AppViewModel) {
             onDismiss = viewModel::closeAnnotation,
             onSkip = { viewModel.skipForSession(image.id) },
             onIgnore = { viewModel.ignorePermanently(image.id) },
-            onSave = { input, output ->
-                viewModel.saveEntry(image, input, output)
-            },
+            onSave = { input, output -> viewModel.saveEntry(image, input, output) },
         )
     }
 }
@@ -280,61 +274,53 @@ private fun GalleryScreen(
     loading: Boolean,
     loadingMore: Boolean,
     canLoadMore: Boolean,
-    includeNsfw: Boolean,
+    diagnostic: NetworkDiagnostic,
     onImageClick: (SourceImage) -> Unit,
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
 ) {
     when {
-        loading && images.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        loading && images.isEmpty() -> Box(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator()
+        }
+
+        images.isEmpty() -> EmptyState(
+            title = "Нет новых изображений с промптами",
+            text = if (canLoadMore) {
+                "На просмотренных страницах не нашлось подходящих записей. Перейдите дальше."
+            } else {
+                "Откройте настройки, выполните проверку соединения и посмотрите диагностику. " +
+                    diagnostic.message
+            },
+            button = if (canLoadMore) "Следующая страница" else "Обновить",
+            onClick = if (canLoadMore) onLoadMore else onRefresh,
+        )
+
+        else -> LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 150.dp),
+            contentPadding = PaddingValues(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(images, key = { it.id }) { image ->
+                ImageCard(image, onClick = { onImageClick(image) })
             }
-        }
-
-        images.isEmpty() -> {
-            EmptyState(
-                icon = Icons.Default.AddPhotoAlternate,
-                title = "Нет доступных изображений с промптами",
-                text = if (canLoadMore) {
-                    "На этой странице не нашлось новых изображений с промптами. Можно перейти дальше."
-                } else if (includeNsfw) {
-                    "Проверьте API-ключ, endpoint и соединение."
-                } else {
-                    "Попробуйте обновить ленту или изменить фильтр NSFW в настройках."
-                },
-                button = if (canLoadMore) "Следующая страница" else "Обновить",
-                onClick = if (canLoadMore) onLoadMore else onRefresh,
-            )
-        }
-
-        else -> {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 150.dp),
-                contentPadding = PaddingValues(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(images, key = { it.id }) { image ->
-                    ImageCard(image = image, onClick = { onImageClick(image) })
-                }
-                item {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(72.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        when {
-                            loadingMore -> CircularProgressIndicator(Modifier.size(28.dp))
-                            canLoadMore -> FilledTonalButton(onClick = onLoadMore) {
-                                Text("Загрузить ещё")
-                            }
-                            else -> Text(
-                                "Конец ленты",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+            item {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(72.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        loadingMore -> CircularProgressIndicator(Modifier.size(28.dp))
+                        canLoadMore -> FilledTonalButton(onClick = onLoadMore) {
+                            Text("Загрузить ещё")
                         }
+                        else -> Text("Конец ленты", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -353,12 +339,7 @@ private fun ImageCard(image: SourceImage, onClick: () -> Unit) {
     ) {
         Box {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(image.url)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.DISABLED)
-                    .networkCachePolicy(CachePolicy.ENABLED)
-                    .build(),
+                model = imageRequest(image.url),
                 contentDescription = "Изображение ${image.id}",
                 modifier = Modifier
                     .fillMaxWidth()
@@ -373,14 +354,14 @@ private fun ImageCard(image: SourceImage, onClick: () -> Unit) {
                     .align(Alignment.TopEnd)
                     .padding(8.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.84f))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        if (image.username != null) {
+        image.username?.let { username ->
             Text(
-                text = image.username,
+                text = username,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -389,6 +370,14 @@ private fun ImageCard(image: SourceImage, onClick: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun imageRequest(url: String): ImageRequest = ImageRequest.Builder(LocalContext.current)
+    .data(url)
+    .memoryCachePolicy(CachePolicy.ENABLED)
+    .diskCachePolicy(CachePolicy.DISABLED)
+    .networkCachePolicy(CachePolicy.ENABLED)
+    .build()
 
 @Composable
 private fun AnnotationDialog(
@@ -427,9 +416,7 @@ private fun AnnotationDialog(
                                 menuExpanded = false
                                 onIgnore()
                             },
-                            leadingIcon = {
-                                Icon(Icons.Default.Delete, contentDescription = null)
-                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
                         )
                     }
                 }
@@ -445,12 +432,7 @@ private fun AnnotationDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(image.url)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.DISABLED)
-                        .networkCachePolicy(CachePolicy.ENABLED)
-                        .build(),
+                    model = imageRequest(image.url),
                     contentDescription = "Выбранное изображение",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -459,11 +441,7 @@ private fun AnnotationDialog(
                     contentScale = ContentScale.Fit,
                 )
 
-                Text(
-                    "Команда",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                )
+                Text("Команда", fontWeight = FontWeight.Bold)
                 Text(
                     command,
                     style = MaterialTheme.typography.bodyMedium,
@@ -476,7 +454,7 @@ private fun AnnotationDialog(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Ввод — ваше описание изображения") },
                     supportingText = {
-                        Text("Сначала опишите картинку своими словами. Исходный промпт пока скрыт.")
+                        Text("Сначала опишите картинку своими словами. Исходный промпт скрыт.")
                     },
                     minLines = 4,
                     maxLines = 10,
@@ -495,19 +473,13 @@ private fun AnnotationDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.VisibilityOff, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "Исходный промпт скрыт",
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                                Text("Исходный промпт скрыт", fontWeight = FontWeight.SemiBold)
                             }
                             Text(
                                 "Кнопка станет доступна после ввода хотя бы пяти символов.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            Button(
-                                onClick = { revealed = true },
-                                enabled = validInput,
-                            ) {
+                            Button(onClick = { revealed = true }, enabled = validInput) {
                                 Icon(Icons.Default.Visibility, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Показать исходный промпт")
@@ -520,9 +492,7 @@ private fun AnnotationDialog(
                         onValueChange = { output = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Вывод — исходный промпт") },
-                        supportingText = {
-                            Text("Промпт можно очистить или исправить перед сохранением.")
-                        },
+                        supportingText = { Text("Промпт можно исправить перед сохранением.") },
                         minLines = 6,
                         maxLines = 16,
                     )
@@ -546,9 +516,7 @@ private fun AnnotationDialog(
                     Spacer(Modifier.width(4.dp))
                     Text("Пропустить")
                 }
-                TextButton(onClick = onDismiss) {
-                    Text("Закрыть")
-                }
+                TextButton(onClick = onDismiss) { Text("Закрыть") }
             }
         },
     )
@@ -562,9 +530,8 @@ private fun DatasetScreen(
 ) {
     if (entries.isEmpty()) {
         EmptyState(
-            icon = Icons.Default.EditNote,
             title = "Датасет пока пуст",
-            text = "Выберите изображение в галерее, добавьте своё описание и сохраните запись.",
+            text = "Выберите изображение, введите своё описание и сохраните запись.",
             button = null,
             onClick = {},
         )
@@ -591,7 +558,7 @@ private fun DatasetScreen(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Экспорт: JSONL с полями command, input, output",
+                        "JSONL: command, input, output",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -608,7 +575,7 @@ private fun DatasetScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(entries, key = { it.id }) { entry ->
-                DatasetEntryCard(entry = entry, onDelete = { onDelete(entry.id) })
+                DatasetEntryCard(entry, onDelete = { onDelete(entry.id) })
             }
         }
     }
@@ -669,9 +636,7 @@ private fun DatasetEntryCard(entry: DatasetEntry, onDelete: () -> Unit) {
             onDismissRequest = { confirmDelete = false },
             title = { Text("Удалить запись?") },
             text = {
-                Text(
-                    "Отметка обработанного изображения также будет удалена, и оно сможет появиться снова.",
-                )
+                Text("После удаления изображение сможет появиться в галерее снова.")
             },
             confirmButton = {
                 Button(
@@ -679,14 +644,10 @@ private fun DatasetEntryCard(entry: DatasetEntry, onDelete: () -> Unit) {
                         confirmDelete = false
                         onDelete()
                     },
-                ) {
-                    Text("Удалить")
-                }
+                ) { Text("Удалить") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { confirmDelete = false }) { Text("Отмена") }
             },
         )
     }
@@ -705,11 +666,11 @@ private fun FieldLabel(text: String) {
 @Composable
 private fun SettingsScreen(
     current: AppSettings,
+    diagnostic: NetworkDiagnostic,
     testing: Boolean,
     onSave: (AppSettings) -> Unit,
     onTest: (AppSettings) -> Unit,
 ) {
-    var endpoint by rememberSaveable(current.endpoint) { mutableStateOf(current.endpoint) }
     var apiKey by remember(current.apiKey) { mutableStateOf(current.apiKey) }
     var includeNsfw by rememberSaveable(current.includeNsfw) {
         mutableStateOf(current.includeNsfw)
@@ -724,7 +685,6 @@ private fun SettingsScreen(
     var showApiKey by rememberSaveable { mutableStateOf(false) }
 
     val draft = AppSettings(
-        endpoint = endpoint,
         apiKey = apiKey,
         includeNsfw = includeNsfw,
         command = command,
@@ -741,34 +701,33 @@ private fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
-            "Источник изображений",
+            "Источник",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
 
-        OutlinedTextField(
-            value = endpoint,
-            onValueChange = { endpoint = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API endpoint") },
-            supportingText = {
-                Text("Ожидается HTTPS-адрес endpoint /api/v1/images")
-            },
-            singleLine = true,
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { endpoint = AppSettings.DEFAULT_ENDPOINT },
-                modifier = Modifier.weight(1f),
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("civita.red")
-            }
-            OutlinedButton(
-                onClick = { endpoint = AppSettings.OFFICIAL_ENDPOINT },
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Civitai")
+                Text("Официальный Civitai REST API", fontWeight = FontWeight.SemiBold)
+                SelectionContainer {
+                    Text(
+                        AppSettings.API_ENDPOINT,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Text(
+                    "Адрес зафиксирован в приложении. civita.red больше не используется, " +
+                        "потому что он возвращал HTML вместо API-данных.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
@@ -776,11 +735,7 @@ private fun SettingsScreen(
             value = apiKey,
             onValueChange = { apiKey = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Пользовательский API-ключ") },
-            supportingText = {
-                Text("Обязателен для NSFW. Хранится локально в зашифрованном виде и не попадает в экспорт.")
-            },
-            singleLine = true,
+            label = { Text("API-ключ Civitai") },
             visualTransformation = if (showApiKey) {
                 VisualTransformation.None
             } else {
@@ -790,17 +745,17 @@ private fun SettingsScreen(
                 IconButton(onClick = { showApiKey = !showApiKey }) {
                     Icon(
                         if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (showApiKey) "Скрыть ключ" else "Показать ключ",
+                        contentDescription = "Показать или скрыть ключ",
                     )
                 }
             },
+            supportingText = {
+                Text("Ключ хранится локально через Android Keystore и не попадает в GitHub.")
+            },
+            singleLine = true,
         )
 
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ),
-        ) {
+        Card {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -809,63 +764,41 @@ private fun SettingsScreen(
                     Column(Modifier.weight(1f)) {
                         Text("Показывать NSFW", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "При включении API-запрос использует уровень X. Нужен API-ключ.",
+                            "Для включения нужны API-ключ и подтверждение возраста.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                     Switch(
                         checked = includeNsfw,
-                        onCheckedChange = {
-                            if (!it || ageConfirmed) includeNsfw = it
-                        },
+                        onCheckedChange = { includeNsfw = it },
                     )
                 }
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Мне исполнилось 18 лет")
-                        Text(
-                            "Требуется для включения NSFW-ленты.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                     }
                     Switch(
                         checked = ageConfirmed,
-                        onCheckedChange = {
-                            ageConfirmed = it
-                            if (!it) includeNsfw = false
-                        },
+                        onCheckedChange = { ageConfirmed = it },
                     )
                 }
             }
         }
 
-        HorizontalDivider()
-
-        Text(
-            "Структура датасета",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-
         OutlinedTextField(
             value = command,
             onValueChange = { command = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Команда") },
-            supportingText = {
-                Text("Эта строка будет записываться в поле command каждой позиции.")
-            },
-            minLines = 2,
-            maxLines = 5,
+            label = { Text("Команда для датасета") },
+            minLines = 3,
+            maxLines = 6,
         )
 
         OutlinedTextField(
             value = pageSizeText,
             onValueChange = { pageSizeText = it.filter(Char::isDigit).take(3) },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Изображений на страницу") },
-            supportingText = { Text("От 10 до 100") },
+            label = { Text("Изображений в одном запросе: 10–100") },
             singleLine = true,
         )
 
@@ -876,51 +809,64 @@ private fun SettingsScreen(
                 modifier = Modifier.weight(1f),
             ) {
                 if (testing) {
-                    CircularProgressIndicator(Modifier.size(20.dp))
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Default.ImageSearch, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
                     Text("Проверить API")
                 }
             }
-
             Button(
                 onClick = { onSave(draft) },
-                enabled = endpoint.isNotBlank() &&
-                    command.isNotBlank() &&
-                    (!includeNsfw || (ageConfirmed && apiKey.isNotBlank())),
                 modifier = Modifier.weight(1f),
             ) {
-                Icon(Icons.Default.Check, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
                 Text("Сохранить")
             }
         }
 
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            ),
+        DiagnosticCard(diagnostic)
+
+        Text(
+            "Версия приложения: ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun DiagnosticCard(diagnostic: NetworkDiagnostic) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(14.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Icon(Icons.Default.ErrorOutline, contentDescription = null)
-                Spacer(Modifier.width(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Info, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Диагностика соединения", fontWeight = FontWeight.SemiBold)
+            }
+            Text("Состояние: ${diagnostic.message}")
+            Text("HTTP: ${diagnostic.httpStatus ?: "—"}")
+            Text("Content-Type: ${diagnostic.contentType ?: "—"}")
+            Text("Элементов в ответе: ${diagnostic.parsedItems ?: "—"}")
+            Text("С промптами: ${diagnostic.itemsWithPrompt ?: "—"}")
+            Text("Получено байт: ${diagnostic.receivedBytes ?: "—"}")
+            SelectionContainer {
                 Text(
-                    "Изображения не записываются в датасет и не сохраняются в дисковом кэше приложения. В базе остаются только ID источника и три строки датасета.",
+                    diagnostic.endpoint,
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        Spacer(Modifier.height(20.dp))
     }
 }
 
 @Composable
 private fun EmptyState(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     text: String,
     button: String?,
@@ -933,22 +879,26 @@ private fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(56.dp))
-        Spacer(Modifier.height(16.dp))
+        Icon(
+            Icons.Default.AddPhotoAlternate,
+            contentDescription = null,
+            modifier = Modifier.size(70.dp),
+        )
+        Spacer(Modifier.height(20.dp))
         Text(
             title,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(8.dp))
         Text(
             text,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (button != null) {
-            Spacer(Modifier.height(18.dp))
-            Button(onClick = onClick) { Text(button) }
+        button?.let {
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onClick) { Text(it) }
         }
     }
 }

@@ -1,15 +1,17 @@
-package com.civitared.promptdataset.ui
+package com.promptdatasetbuilder.app.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.civitared.promptdataset.data.AppDatabase
-import com.civitared.promptdataset.data.AppSettings
-import com.civitared.promptdataset.data.DatasetEntry
-import com.civitared.promptdataset.data.SecureSettingsStore
-import com.civitared.promptdataset.data.SettingsRules
-import com.civitared.promptdataset.data.SourceImage
-import com.civitared.promptdataset.network.CivitaApiClient
+import com.promptdatasetbuilder.app.data.AppDatabase
+import com.promptdatasetbuilder.app.data.AppSettings
+import com.promptdatasetbuilder.app.data.DatasetEntry
+import com.promptdatasetbuilder.app.data.NetworkDiagnostic
+import com.promptdatasetbuilder.app.data.SecureSettingsStore
+import com.promptdatasetbuilder.app.data.SettingsRules
+import com.promptdatasetbuilder.app.data.SourceImage
+import com.promptdatasetbuilder.app.network.CivitaiApiClient
+import com.promptdatasetbuilder.app.network.CivitaiApiException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,91 +20,122 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+
 data class AppUiState(
     val settings: AppSettings = AppSettings(),
     val images: List<SourceImage> = emptyList(),
-    val selectedImage: SourceImage? = null,
     val entries: List<DatasetEntry> = emptyList(),
+    val selectedImage: SourceImage? = null,
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
-    val canLoadMore: Boolean = true,
+    val connectionTesting: Boolean = false,
+    val nextUrl: String? = null,
+    val nextCursor: String? = null,
+    val canLoadMore: Boolean = false,
+    val diagnostic: NetworkDiagnostic = NetworkDiagnostic(),
     val message: String? = null,
     val error: String? = null,
-    val connectionTesting: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase(application)
     private val settingsStore = SecureSettingsStore(application)
-    private val api = CivitaApiClient()
+    private val api = CivitaiApiClient()
+    private val sessionSkipped = LinkedHashSet<String>()
+    private var galleryJob: Job? = null
 
     private val _uiState = MutableStateFlow(
         AppUiState(settings = settingsStore.load()),
     )
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
-    private var nextUrl: String? = null
-    private var nextCursor: String? = null
-    private var loadJob: Job? = null
-    private val sessionSkipped = LinkedHashSet<String>()
-
     init {
         refreshEntries()
     }
 
     fun refreshGallery() {
-        loadJob?.cancel()
-        nextUrl = null
-        nextCursor = null
-        _uiState.value = _uiState.value.copy(
-            images = emptyList(),
-            canLoadMore = true,
-            error = null,
-        )
-        loadPage(reset = true)
+        galleryJob?.cancel()
+        galleryJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                loading = true,
+                loadingMore = false,
+                images = emptyList(),
+                nextUrl = null,
+                nextCursor = null,
+                canLoadMore = false,
+                error = null,
+            )
+            loadPagesUntilUseful(reset = true)
+        }
     }
 
     fun loadMore() {
-        if (!_uiState.value.canLoadMore || _uiState.value.loadingMore) return
-        loadPage(reset = false)
+        val state = _uiState.value
+        if (state.loading || state.loadingMore || !state.canLoadMore) return
+
+        galleryJob?.cancel()
+        galleryJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(loadingMore = true, error = null)
+            loadPagesUntilUseful(reset = false)
+        }
     }
 
-    private fun loadPage(reset: Boolean) {
-        loadJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                loading = reset,
-                loadingMore = !reset,
-                error = null,
-            )
-            runCatching {
-                val settings = _uiState.value.settings
-                val page = api.loadPage(settings, nextUrl, nextCursor)
-                val processed = withContext(Dispatchers.IO) { database.getProcessedIds() }
-                val visible = page.items.filterNot {
-                    it.id in processed || it.id in sessionSkipped
-                }
+    private suspend fun loadPagesUntilUseful(reset: Boolean) {
+        var nextUrl: String? = if (reset) null else _uiState.value.nextUrl
+        var nextCursor: String? = if (reset) null else _uiState.value.nextCursor
+        val collected = ArrayList<SourceImage>()
+        var lastDiagnostic = _uiState.value.diagnostic
+        var attempts = 0
+
+        try {
+            val processed = withContext(Dispatchers.IO) { database.getProcessedIds() }
+            while (attempts < 4) {
+                attempts++
+                val page = api.loadPage(
+                    settings = _uiState.value.settings,
+                    nextUrl = nextUrl,
+                    nextCursor = nextCursor,
+                )
+                lastDiagnostic = page.diagnostic
                 nextUrl = page.nextUrl
                 nextCursor = page.nextCursor
 
-                val merged = if (reset) {
-                    visible
-                } else {
-                    (_uiState.value.images + visible).distinctBy { it.id }
+                collected += page.items.filterNot { image ->
+                    image.id in processed || image.id in sessionSkipped
                 }
-                val hasNext = page.nextUrl != null || page.nextCursor != null
-                _uiState.value = _uiState.value.copy(
-                    images = merged,
-                    loading = false,
-                    loadingMore = false,
-                    canLoadMore = hasNext,
-                )
-            }.onFailure { error ->
-                _uiState.value = _uiState.value.copy(
-                    loading = false,
-                    loadingMore = false,
-                    error = error.message ?: "Ошибка загрузки",
-                )
+
+                if (collected.isNotEmpty() || (nextUrl == null && nextCursor == null)) break
             }
+
+            val existing: List<SourceImage> = if (reset) emptyList() else _uiState.value.images
+            val merged = (existing + collected).distinctBy(SourceImage::id)
+            _uiState.value = _uiState.value.copy(
+                images = merged,
+                loading = false,
+                loadingMore = false,
+                nextUrl = nextUrl,
+                nextCursor = nextCursor,
+                canLoadMore = nextUrl != null || nextCursor != null,
+                diagnostic = lastDiagnostic,
+                message = if (collected.isEmpty() && (nextUrl != null || nextCursor != null)) {
+                    "На просмотренных страницах нет новых изображений с промптами"
+                } else {
+                    null
+                },
+            )
+        } catch (error: CivitaiApiException) {
+            _uiState.value = _uiState.value.copy(
+                loading = false,
+                loadingMore = false,
+                diagnostic = error.diagnostic,
+                error = error.message ?: "Ошибка Civitai API",
+            )
+        } catch (error: Throwable) {
+            _uiState.value = _uiState.value.copy(
+                loading = false,
+                loadingMore = false,
+                error = error.message ?: "Ошибка загрузки",
+            )
         }
     }
 
@@ -133,11 +166,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveEntry(
-        image: SourceImage,
-        input: String,
-        output: String,
-    ) {
+    fun saveEntry(image: SourceImage, input: String, output: String) {
         val command = _uiState.value.settings.command.trim()
         if (command.isBlank() || input.isBlank() || output.isBlank()) {
             _uiState.value = _uiState.value.copy(
@@ -163,9 +192,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     message = "Запись сохранена",
                 )
                 refreshEntries()
-            }.onFailure {
+            }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
-                    error = it.message ?: "Не удалось сохранить запись",
+                    error = error.message ?: "Не удалось сохранить запись",
                 )
             }
         }
@@ -193,7 +222,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val normalized = settings.copy(
-            endpoint = settingsStore.normalizeEndpoint(settings.endpoint),
             apiKey = settings.apiKey.trim(),
             command = settings.command.trim().ifBlank { AppSettings.DEFAULT_COMMAND },
             pageSize = settings.pageSize.coerceIn(10, 100),
@@ -215,20 +243,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(connectionTesting = true, error = null)
             runCatching {
-                val normalized = settings.copy(
-                    endpoint = settingsStore.normalizeEndpoint(settings.endpoint),
-                    apiKey = settings.apiKey.trim(),
+                api.testConnection(
+                    settings.copy(
+                        apiKey = settings.apiKey.trim(),
+                        command = settings.command.trim().ifBlank { AppSettings.DEFAULT_COMMAND },
+                    ),
                 )
-                api.testConnection(normalized)
-            }.onSuccess { count ->
+            }.onSuccess { page ->
                 _uiState.value = _uiState.value.copy(
                     connectionTesting = false,
-                    message = "Соединение работает. Получено записей с промптами: $count",
+                    diagnostic = page.diagnostic,
+                    message = "Соединение работает. Изображений с промптами: ${page.items.size}",
                 )
-            }.onFailure {
+            }.onFailure { error ->
+                val diagnostic = (error as? CivitaiApiException)?.diagnostic
                 _uiState.value = _uiState.value.copy(
                     connectionTesting = false,
-                    error = it.message ?: "Проверка соединения не удалась",
+                    diagnostic = diagnostic ?: _uiState.value.diagnostic,
+                    error = error.message ?: "Проверка соединения не удалась",
                 )
             }
         }

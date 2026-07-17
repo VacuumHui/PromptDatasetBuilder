@@ -1,4 +1,4 @@
-package com.civitared.promptdataset.ui.theme
+package com.promptdatasetbuilder.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -16,7 +16,6 @@ fun PromptDatasetTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = MaterialTheme.typography,
         content = content,
     )
 }

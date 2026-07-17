@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PromptDatasetBuilder"
+rootProject.name = "PromptDatasetBuilderClean"
 include(":app")
