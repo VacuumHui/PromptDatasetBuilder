@@ -1,4 +1,4 @@
-name: Android CI Clean 1.0.1
+name: Android CI 1.1.0
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
-          key: prompt-dataset-clean-debug-${{ github.repository_id }}
+          key: prompt-dataset-debug-${{ github.repository_id }}
 
       - name: Verify project sources
         run: python3 scripts/verify_project.py
@@ -46,29 +46,31 @@ jobs:
       - name: Build debug APK
         run: gradle --stacktrace --console=plain assembleDebug
 
-      - name: Run local unit tests
+      - name: Run parser unit tests
         run: gradle --stacktrace --console=plain testDebugUnitTest
 
       - name: Run Android lint
         run: gradle --stacktrace --console=plain lintDebug
 
       - name: Prepare APK
+        if: success()
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/PromptDatasetBuilder-Clean-1.0.1-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/PromptDatasetBuilder-1.1.0-debug.apk
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: PromptDatasetBuilder-Clean-1.0.1-debug
-          path: dist/PromptDatasetBuilder-Clean-1.0.1-debug.apk
+          name: PromptDatasetBuilder-1.1.0-debug
+          path: dist/PromptDatasetBuilder-1.1.0-debug.apk
           if-no-files-found: error
 
       - name: Upload diagnostic reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: PromptDatasetBuilder-Clean-1.0.1-reports
+          name: PromptDatasetBuilder-1.1.0-reports
           path: |
             app/build/reports/tests/
             app/build/reports/lint-results-debug.html

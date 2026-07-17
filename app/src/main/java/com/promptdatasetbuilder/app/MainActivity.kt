@@ -288,9 +288,9 @@ private fun GalleryScreen(
         }
 
         images.isEmpty() -> EmptyState(
-            title = "Нет новых изображений с промптами",
+            title = "Нет новых изображений с открытыми промптами",
             text = if (canLoadMore) {
-                "На просмотренных страницах не нашлось подходящих записей. Перейдите дальше."
+                "На просмотренных страницах не нашлось открытых промптов. Перейдите дальше."
             } else {
                 "Откройте настройки, выполните проверку соединения и посмотрите диагностику. " +
                     diagnostic.message
@@ -688,7 +688,7 @@ private fun SettingsScreen(
         apiKey = apiKey,
         includeNsfw = includeNsfw,
         command = command,
-        pageSize = pageSizeText.toIntOrNull()?.coerceIn(10, 100) ?: 30,
+        pageSize = pageSizeText.toIntOrNull()?.coerceIn(6, 30) ?: 12,
         ageConfirmed = ageConfirmed,
     )
 
@@ -715,16 +715,17 @@ private fun SettingsScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Официальный Civitai REST API", fontWeight = FontWeight.SemiBold)
+                Text("civita.red tRPC + автоматический резерв", fontWeight = FontWeight.SemiBold)
                 SelectionContainer {
                     Text(
-                        AppSettings.API_ENDPOINT,
+                        "${AppSettings.PRIMARY_SOURCE}${AppSettings.TRPC_PATH}image.getInfinite",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Text(
-                    "Адрес зафиксирован в приложении. civita.red больше не используется, " +
-                        "потому что он возвращал HTML вместо API-данных.",
+                    "Лента берётся через tRPC civita.red. Для каждого ID приложение отдельно " +
+                        "запрашивает image.getGenerationData, поэтому промпт больше не зависит " +
+                        "от урезанного REST-ответа. При сбое используется civitai.com.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -798,7 +799,7 @@ private fun SettingsScreen(
             value = pageSizeText,
             onValueChange = { pageSizeText = it.filter(Char::isDigit).take(3) },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Изображений в одном запросе: 10–100") },
+            label = { Text("Кандидатов на страницу: 6–30") },
             singleLine = true,
         )
 
@@ -811,7 +812,7 @@ private fun SettingsScreen(
                 if (testing) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 } else {
-                    Text("Проверить API")
+                    Text("Проверить источник")
                 }
             }
             Button(
@@ -851,8 +852,11 @@ private fun DiagnosticCard(diagnostic: NetworkDiagnostic) {
             Text("Состояние: ${diagnostic.message}")
             Text("HTTP: ${diagnostic.httpStatus ?: "—"}")
             Text("Content-Type: ${diagnostic.contentType ?: "—"}")
-            Text("Элементов в ответе: ${diagnostic.parsedItems ?: "—"}")
-            Text("С промптами: ${diagnostic.itemsWithPrompt ?: "—"}")
+            Text("Источник: ${diagnostic.sourceHost}")
+            Text("Кандидатов в ленте: ${diagnostic.parsedItems ?: "—"}")
+            Text("Проверено generation data: ${diagnostic.generationChecked ?: "—"}")
+            Text("Успешных generation-запросов: ${diagnostic.generationSucceeded ?: "—"}")
+            Text("С открытыми промптами: ${diagnostic.itemsWithPrompt ?: "—"}")
             Text("Получено байт: ${diagnostic.receivedBytes ?: "—"}")
             SelectionContainer {
                 Text(

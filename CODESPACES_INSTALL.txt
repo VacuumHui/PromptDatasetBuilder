@@ -1,30 +1,36 @@
-ПОЛНАЯ ЗАМЕНА ПРОЕКТА В GITHUB CODESPACES
+УСТАНОВКА PROMPT DATASET BUILDER 1.1.0 В CODESPACES
 
-1. Загрузите файл PromptDatasetBuilder-Clean-1.0.0.zip в корень текущего репозитория.
-2. Откройте Code -> Codespaces -> ваш Codespace.
-3. Откройте Terminal -> New Terminal.
-4. Выполните весь блок:
+1. Загрузите PromptDatasetBuilder-1.1.0.zip в корень репозитория через сайт GitHub.
+2. Откройте Codespaces -> Terminal -> New Terminal.
+3. Вставьте весь блок:
 
-cd "$CODESPACE_VSCODE_FOLDER"
-ZIP="PromptDatasetBuilder-Clean-1.0.0.zip"
-rm -rf /tmp/prompt-dataset-clean
-mkdir -p /tmp/prompt-dataset-clean
-unzip -q "$ZIP" -d /tmp/prompt-dataset-clean
-find . -mindepth 1 -maxdepth 1 ! -name ".git" ! -name "$ZIP" -exec rm -rf {} +
-cp -a /tmp/prompt-dataset-clean/PromptDatasetBuilder-Clean-1.0.0/. .
-rm -rf /tmp/prompt-dataset-clean "$ZIP"
+cd /workspaces/PromptDatasetBuilder
+
+git fetch origin
+git reset --hard origin/main
+
+ZIP="PromptDatasetBuilder-1.1.0.zip"
+test -f "$ZIP" || { echo "ZIP не найден"; exit 1; }
+
+rm -rf /tmp/pdb-1.1.0
+mkdir -p /tmp/pdb-1.1.0
+unzip -q "$ZIP" -d /tmp/pdb-1.1.0
+
+find . -mindepth 1 -maxdepth 1 \
+  ! -name ".git" \
+  ! -name "$ZIP" \
+  -exec rm -rf {} +
+
+cp -a /tmp/pdb-1.1.0/. .
+rm -rf /tmp/pdb-1.1.0
+rm -f "$ZIP"
+
+python3 scripts/verify_project.py
 git add -A
 git status
-git commit -m "Полная замена приложения на Clean 1.0.0"
-git push
+git commit -m "Полная установка Prompt Dataset Builder 1.1.0"
+git push origin main
 
-5. В GitHub откройте Actions -> Android CI Clean 1.0.0.
-6. После зелёной сборки скачайте artifact PromptDatasetBuilder-Clean-1.0.0-debug.
-7. Распакуйте artifact и установите PromptDatasetBuilder-Clean-1.0.0-debug.apk.
-
-Если git просит имя и почту:
-
-git config user.name "ВАШ_ЛОГИН_GITHUB"
-git config user.email "ВАША_ПОЧТА_GITHUB"
-
-Затем повторите git commit и git push.
+4. Откройте GitHub -> Actions -> Android CI 1.1.0.
+5. После зелёной сборки скачайте artifact PromptDatasetBuilder-1.1.0-debug.
+6. Установите PromptDatasetBuilder-1.1.0-debug.apk.

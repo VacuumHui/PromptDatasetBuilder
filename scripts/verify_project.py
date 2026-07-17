@@ -10,6 +10,7 @@ required = [
     ROOT / "app/src/main/AndroidManifest.xml",
     ROOT / "app/src/main/java/com/promptdatasetbuilder/app/MainActivity.kt",
     ROOT / "app/src/main/java/com/promptdatasetbuilder/app/network/CivitaiApiClient.kt",
+    ROOT / "app/src/main/java/com/promptdatasetbuilder/app/network/CivitaiResponseParser.kt",
     ROOT / ".github/workflows/android.yml",
 ]
 for path in required:
@@ -29,27 +30,35 @@ for path in ROOT.rglob("*.kt"):
     if "com.civitared.promptdataset" in text:
         errors.append(f"Old package remains: {path.relative_to(ROOT)}")
 
-api_client = (ROOT / "app/src/main/java/com/promptdatasetbuilder/app/network/CivitaiApiClient.kt")
+api_client = ROOT / "app/src/main/java/com/promptdatasetbuilder/app/network/CivitaiApiClient.kt"
 if api_client.exists():
     text = api_client.read_text(encoding="utf-8")
-    if "AppSettings.API_ENDPOINT" not in text:
-        errors.append("API client does not use the fixed official endpoint")
+    for marker in (
+        "image.getInfinite",
+        "image.getGenerationData",
+        "browsingLevel",
+        "x-client-version",
+        "AppSettings.PRIMARY_SOURCE",
+        "AppSettings.FALLBACK_SOURCE",
+    ):
+        if marker not in text:
+            errors.append(f"Network implementation is missing marker: {marker}")
+    if "/api/v1/images" in text:
+        errors.append("Old REST image feed remains in the network client")
 
 models = ROOT / "app/src/main/java/com/promptdatasetbuilder/app/data/Models.kt"
 if models.exists():
     text = models.read_text(encoding="utf-8")
-    if 'https://civitai.com/api/v1/images' not in text:
-        errors.append("Official Civitai endpoint is missing")
+    if 'https://civita.red' not in text or 'https://civitai.com' not in text:
+        errors.append("Primary and fallback source hosts are not both configured")
 
 app_gradle = ROOT / "app/build.gradle.kts"
 if app_gradle.exists():
     text = app_gradle.read_text(encoding="utf-8")
+    if 'versionName = "1.1.0"' not in text:
+        errors.append("Expected app version 1.1.0")
     if 'testImplementation("org.json:json:20240303")' not in text:
         errors.append("Pure JVM org.json dependency is missing for local parser tests")
-
-stale_package = ROOT / "app/src/main/java/com/civitared"
-if stale_package.exists():
-    errors.append("Old com/civitared source directory remains")
 
 if errors:
     print("PROJECT VERIFICATION FAILED")

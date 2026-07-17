@@ -29,7 +29,7 @@ data class AppUiState(
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
     val connectionTesting: Boolean = false,
-    val nextUrl: String? = null,
+    val sourceBaseUrl: String? = null,
     val nextCursor: String? = null,
     val canLoadMore: Boolean = false,
     val diagnostic: NetworkDiagnostic = NetworkDiagnostic(),
@@ -60,7 +60,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 loading = true,
                 loadingMore = false,
                 images = emptyList(),
-                nextUrl = null,
+                sourceBaseUrl = null,
                 nextCursor = null,
                 canLoadMore = false,
                 error = null,
@@ -81,7 +81,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun loadPagesUntilUseful(reset: Boolean) {
-        var nextUrl: String? = if (reset) null else _uiState.value.nextUrl
+        var sourceBaseUrl: String? = if (reset) null else _uiState.value.sourceBaseUrl
         var nextCursor: String? = if (reset) null else _uiState.value.nextCursor
         val collected = ArrayList<SourceImage>()
         var lastDiagnostic = _uiState.value.diagnostic
@@ -89,22 +89,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             val processed = withContext(Dispatchers.IO) { database.getProcessedIds() }
-            while (attempts < 4) {
+            while (attempts < 3) {
                 attempts++
                 val page = api.loadPage(
                     settings = _uiState.value.settings,
-                    nextUrl = nextUrl,
+                    preferredSource = sourceBaseUrl,
                     nextCursor = nextCursor,
                 )
                 lastDiagnostic = page.diagnostic
-                nextUrl = page.nextUrl
+                sourceBaseUrl = page.sourceBaseUrl
                 nextCursor = page.nextCursor
 
                 collected += page.items.filterNot { image ->
                     image.id in processed || image.id in sessionSkipped
                 }
 
-                if (collected.isNotEmpty() || (nextUrl == null && nextCursor == null)) break
+                if (collected.isNotEmpty() || nextCursor == null) break
             }
 
             val existing: List<SourceImage> = if (reset) emptyList() else _uiState.value.images
@@ -113,12 +113,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 images = merged,
                 loading = false,
                 loadingMore = false,
-                nextUrl = nextUrl,
+                sourceBaseUrl = sourceBaseUrl,
                 nextCursor = nextCursor,
-                canLoadMore = nextUrl != null || nextCursor != null,
+                canLoadMore = nextCursor != null,
                 diagnostic = lastDiagnostic,
-                message = if (collected.isEmpty() && (nextUrl != null || nextCursor != null)) {
-                    "На просмотренных страницах нет новых изображений с промптами"
+                message = if (collected.isEmpty() && nextCursor != null) {
+                    "На просмотренных страницах нет новых изображений с открытыми промптами"
                 } else {
                     null
                 },
@@ -128,7 +128,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 loading = false,
                 loadingMore = false,
                 diagnostic = error.diagnostic,
-                error = error.message ?: "Ошибка Civitai API",
+                error = error.message ?: "Ошибка источника изображений",
             )
         } catch (error: Throwable) {
             _uiState.value = _uiState.value.copy(
@@ -224,7 +224,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = settings.copy(
             apiKey = settings.apiKey.trim(),
             command = settings.command.trim().ifBlank { AppSettings.DEFAULT_COMMAND },
-            pageSize = settings.pageSize.coerceIn(10, 100),
+            pageSize = settings.pageSize.coerceIn(6, 30),
         )
         settingsStore.save(normalized)
         _uiState.value = _uiState.value.copy(

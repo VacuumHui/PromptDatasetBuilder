@@ -23,7 +23,7 @@ class SecureSettingsStore(context: Context) {
             ?.trim()
             ?.ifBlank { AppSettings.DEFAULT_COMMAND }
             ?: AppSettings.DEFAULT_COMMAND,
-        pageSize = plain.getInt(KEY_PAGE_SIZE, 30).coerceIn(10, 100),
+        pageSize = plain.getInt(KEY_PAGE_SIZE, 12).coerceIn(6, 30),
         ageConfirmed = plain.getBoolean(KEY_AGE_CONFIRMED, false),
     )
 
@@ -31,7 +31,7 @@ class SecureSettingsStore(context: Context) {
         plain.edit()
             .putBoolean(KEY_INCLUDE_NSFW, settings.includeNsfw)
             .putString(KEY_COMMAND, settings.command.trim().ifBlank { AppSettings.DEFAULT_COMMAND })
-            .putInt(KEY_PAGE_SIZE, settings.pageSize.coerceIn(10, 100))
+            .putInt(KEY_PAGE_SIZE, settings.pageSize.coerceIn(6, 30))
             .putBoolean(KEY_AGE_CONFIRMED, settings.ageConfirmed)
             .apply()
 

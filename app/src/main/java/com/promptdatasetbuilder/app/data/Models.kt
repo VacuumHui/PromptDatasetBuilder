@@ -12,17 +12,20 @@ data class SourceImage(
 
 data class ImagePage(
     val items: List<SourceImage>,
-    val nextUrl: String?,
     val nextCursor: String?,
+    val sourceBaseUrl: String,
     val diagnostic: NetworkDiagnostic,
 )
 
 data class NetworkDiagnostic(
-    val endpoint: String = AppSettings.API_ENDPOINT,
+    val endpoint: String = AppSettings.PRIMARY_SOURCE + AppSettings.TRPC_PATH + "image.getInfinite",
+    val sourceHost: String = "ещё не выбран",
     val httpStatus: Int? = null,
     val contentType: String? = null,
     val receivedBytes: Int? = null,
     val parsedItems: Int? = null,
+    val generationChecked: Int? = null,
+    val generationSucceeded: Int? = null,
     val itemsWithPrompt: Int? = null,
     val message: String = "Запрос ещё не выполнялся",
 )
@@ -41,11 +44,13 @@ data class AppSettings(
     val apiKey: String = "",
     val includeNsfw: Boolean = false,
     val command: String = DEFAULT_COMMAND,
-    val pageSize: Int = 30,
+    val pageSize: Int = 12,
     val ageConfirmed: Boolean = false,
 ) {
     companion object {
-        const val API_ENDPOINT = "https://civitai.com/api/v1/images"
+        const val PRIMARY_SOURCE = "https://civita.red"
+        const val FALLBACK_SOURCE = "https://civitai.com"
+        const val TRPC_PATH = "/api/trpc/"
         const val DEFAULT_COMMAND =
             "Составь подробный англоязычный промпт для генерации изображения на основе описания пользователя."
     }
