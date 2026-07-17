@@ -1,4 +1,4 @@
-name: Android CI Clean 1.0.0
+name: Android CI Clean 1.0.1
 
 on:
   push:
@@ -43,17 +43,34 @@ jobs:
       - name: Verify project sources
         run: python3 scripts/verify_project.py
 
-      - name: Unit tests, lint and debug APK
-        run: gradle --stacktrace testDebugUnitTest lintDebug assembleDebug
+      - name: Build debug APK
+        run: gradle --stacktrace --console=plain assembleDebug
+
+      - name: Run local unit tests
+        run: gradle --stacktrace --console=plain testDebugUnitTest
+
+      - name: Run Android lint
+        run: gradle --stacktrace --console=plain lintDebug
 
       - name: Prepare APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/PromptDatasetBuilder-Clean-1.0.0-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/PromptDatasetBuilder-Clean-1.0.1-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: PromptDatasetBuilder-Clean-1.0.0-debug
-          path: dist/PromptDatasetBuilder-Clean-1.0.0-debug.apk
+          name: PromptDatasetBuilder-Clean-1.0.1-debug
+          path: dist/PromptDatasetBuilder-Clean-1.0.1-debug.apk
           if-no-files-found: error
+
+      - name: Upload diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: PromptDatasetBuilder-Clean-1.0.1-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.txt
+          if-no-files-found: ignore

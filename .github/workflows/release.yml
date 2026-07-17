@@ -33,16 +33,20 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36"
 
-      - name: Build debug APK
-        run: gradle --stacktrace testDebugUnitTest assembleDebug
+      - name: Verify, build and test
+        run: |
+          python3 scripts/verify_project.py
+          gradle --stacktrace --console=plain assembleDebug
+          gradle --stacktrace --console=plain testDebugUnitTest
+          gradle --stacktrace --console=plain lintDebug
 
       - name: Prepare release file
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/PromptDatasetBuilder-Clean-1.0.0-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/PromptDatasetBuilder-Clean-1.0.1-debug.apk
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/PromptDatasetBuilder-Clean-1.0.0-debug.apk
+          files: dist/PromptDatasetBuilder-Clean-1.0.1-debug.apk
           generate_release_notes: true
